@@ -174,9 +174,16 @@ fn align_records(records: Vec<Record>, senders: Vec<RecordPairSender>, num_threa
         });
 }
 
+fn write_header(out: &Mutex<BufWriter<File>>) {
+    let mut out = out.lock().unwrap();
+    writeln!(&mut out, "x\ty\txlen\tylen\talnlen\tmatches\tpid").unwrap();
+}
+
 pub fn run(cli: Cli) {
     let out = File::create(cli.out_file.clone()).unwrap();
     let out = Arc::new(Mutex::new(BufWriter::new(out)));
+
+    write_header(&out);
 
     let records = get_records(cli.in_file.clone());
 
