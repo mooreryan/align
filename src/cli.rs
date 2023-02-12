@@ -53,6 +53,10 @@ pub struct Cli {
     /// EMBOSS needle uses -0.5 as gap_extend, but we only take integers.
     #[arg(long, default_value_t = 1)]
     gap_extend: u8,
+
+    /// Show the alignment operations
+    #[arg(long, default_value_t = false)]
+    pub show_aln_ops: bool,
 }
 
 impl Cli {

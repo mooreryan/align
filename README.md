@@ -34,6 +34,8 @@ Do all-vs-all alignments for the sequences in `seqs.faa`.
 align --threads=4 seqs.faa out.tsv
 ```
 
+If you want to include the alignment operations, use `--show-aln-ops`.
+
 Show help screen.
 
 ``` 
@@ -47,6 +49,8 @@ When you make a change to the code, such that the output of the test has changed
 ```
 just promote
 ```
+
+There are individual test and promote recipes, so, check them out!
 
 ## License
 

@@ -33,6 +33,25 @@ fn assert_global(x: &Record, y: &Record, alignment: &Alignment) {
     };
 }
 
+fn show_self_alignment_ops(len: usize) -> String {
+    "M".repeat(len)
+}
+
+fn show_alignment_ops(alignment: &Alignment) -> String {
+    alignment
+        .operations
+        .iter()
+        .map(|op| match op {
+            AlignmentOperation::Match => "M".to_string(),
+            AlignmentOperation::Subst => "S".to_string(),
+            AlignmentOperation::Del => "D".to_string(),
+            AlignmentOperation::Ins => "I".to_string(),
+            AlignmentOperation::Xclip(size) => "X".repeat(*size),
+            AlignmentOperation::Yclip(size) => "Y".repeat(*size),
+        })
+        .collect::<String>()
+}
+
 /// Count identities/matches in the alignment.
 fn count_identities(alignment: &Alignment) -> i32 {
     let n = alignment
@@ -61,13 +80,14 @@ fn percent_identity(aln_len: i32, num_matches: i32) -> f64 {
 }
 
 /// Print one line with info for alignment.
-fn print_alignment_line(
+fn print_alignment_info_line(
     out: &mut BufWriter<File>,
     x: &Record,
     y: &Record,
     aln_len: i32,
     num_matches: i32,
     percent_identity: f64,
+    aln_ops: &Option<String>,
 ) {
     let x_name = x.id();
     let y_name = y.id();
@@ -75,9 +95,14 @@ fn print_alignment_line(
     let x_len = x.seq().len();
     let y_len = y.seq().len();
 
+    let aln_ops = match aln_ops {
+        None => "".to_string(),
+        Some(ops) => format!("\t{ops}"),
+    };
+
     writeln!(
         out,
-        "{x_name}\t{y_name}\t{x_len}\t{y_len}\t{aln_len}\t{num_matches}\t{percent_identity}"
+        "{x_name}\t{y_name}\t{x_len}\t{y_len}\t{aln_len}\t{num_matches}\t{percent_identity}{aln_ops}"
     )
     .unwrap();
 }
@@ -88,15 +113,38 @@ fn print_alignment_info(
     x: &Record,
     y: &Record,
     alignment: &Alignment,
+    show_aln_ops: bool,
 ) {
     let aln_len = alignment_length(alignment);
     let num_matches = count_identities(alignment);
 
     let percent_identity = percent_identity(aln_len, num_matches);
 
+    let aln_ops = if show_aln_ops {
+        Some(show_alignment_ops(alignment))
+    } else {
+        None
+    };
+
     let stdout = &mut *(out.lock().unwrap());
-    print_alignment_line(stdout, x, y, num_matches, aln_len, percent_identity);
-    print_alignment_line(stdout, y, x, num_matches, aln_len, percent_identity);
+    print_alignment_info_line(
+        stdout,
+        x,
+        y,
+        aln_len,
+        num_matches,
+        percent_identity,
+        &aln_ops,
+    );
+    print_alignment_info_line(
+        stdout,
+        y,
+        x,
+        aln_len,
+        num_matches,
+        percent_identity,
+        &aln_ops,
+    );
 }
 
 fn get_records(path: PathBuf) -> Vec<Record> {
@@ -120,6 +168,7 @@ fn set_up_workers(
     gap_open: i32,
     gap_extend: i32,
     out: Arc<Mutex<BufWriter<File>>>,
+    show_aln_ops: bool,
 ) -> Workers {
     let mut thread_handles = Vec::with_capacity(num_threads);
     let mut senders = Vec::with_capacity(num_threads);
@@ -133,7 +182,7 @@ fn set_up_workers(
             for (x, y) in r {
                 let alignment = aligner.global(x.seq(), y.seq());
                 assert_global(&x, &y, &alignment);
-                print_alignment_info(&out, &x, &y, &alignment);
+                print_alignment_info(&out, &x, &y, &alignment, show_aln_ops);
             }
         });
 
@@ -148,12 +197,19 @@ fn set_up_workers(
 }
 
 /// Self-hits don't need alignment, so write out the equal sequence alignment info.
-fn write_self_hits(records: &[Record], out: Arc<Mutex<BufWriter<File>>>) {
+fn write_self_hits(records: &[Record], out: Arc<Mutex<BufWriter<File>>>, show_aln_ops: bool) {
     let mut out = out.lock().unwrap();
     records.iter().for_each(|r| {
         // Safe because inteins are short.
         let len = i32::try_from(r.seq().len()).unwrap();
-        print_alignment_line(&mut out, r, r, len, len, 1.0);
+
+        let aln_ops = if show_aln_ops {
+            Some(show_self_alignment_ops(r.seq().len()))
+        } else {
+            None
+        };
+
+        print_alignment_info_line(&mut out, r, r, len, len, 1.0, &aln_ops);
     });
 }
 
@@ -191,9 +247,15 @@ pub fn run(cli: Cli) {
     let Workers {
         thread_handles,
         senders,
-    } = set_up_workers(num_threads, cli.gap_open(), cli.gap_extend(), out.clone());
+    } = set_up_workers(
+        num_threads,
+        cli.gap_open(),
+        cli.gap_extend(),
+        out.clone(),
+        cli.show_aln_ops,
+    );
 
-    write_self_hits(&records, out);
+    write_self_hits(&records, out, cli.show_aln_ops);
     align_records(records, senders, num_threads);
 
     // Wait for the threads to finish working.
